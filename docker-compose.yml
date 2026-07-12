@@ -1,0 +1,93 @@
+services:
+  crdb-node1:
+    image: cockroachdb/cockroach:v25.2.3
+    container_name: crdb-node1
+    hostname: crdb-node1
+    command:
+      - start
+      - --insecure
+      - --advertise-addr=crdb-node1:26357
+      - --listen-addr=crdb-node1:26357
+      - --sql-addr=crdb-node1:26257
+      - --http-addr=crdb-node1:8080
+      - --join=crdb-node1:26357,crdb-node2:26357,crdb-node3:26357
+      - --locality=region=uteq,zone=nodo1
+      - --store=/cockroach/cockroach-data
+    ports:
+      - "26257:26257"
+      - "8080:8080"
+    volumes:
+      - crdb-node1-data:/cockroach/cockroach-data
+    networks:
+      - crdb-network
+    restart: unless-stopped
+
+  crdb-node2:
+    image: cockroachdb/cockroach:v25.2.3
+    container_name: crdb-node2
+    hostname: crdb-node2
+    command:
+      - start
+      - --insecure
+      - --advertise-addr=crdb-node2:26357
+      - --listen-addr=crdb-node2:26357
+      - --sql-addr=crdb-node2:26257
+      - --http-addr=crdb-node2:8080
+      - --join=crdb-node1:26357,crdb-node2:26357,crdb-node3:26357
+      - --locality=region=uteq,zone=nodo2
+      - --store=/cockroach/cockroach-data
+    ports:
+      - "26258:26257"
+      - "8081:8080"
+    volumes:
+      - crdb-node2-data:/cockroach/cockroach-data
+    networks:
+      - crdb-network
+    restart: unless-stopped
+
+  crdb-node3:
+    image: cockroachdb/cockroach:v25.2.3
+    container_name: crdb-node3
+    hostname: crdb-node3
+    command:
+      - start
+      - --insecure
+      - --advertise-addr=crdb-node3:26357
+      - --listen-addr=crdb-node3:26357
+      - --sql-addr=crdb-node3:26257
+      - --http-addr=crdb-node3:8080
+      - --join=crdb-node1:26357,crdb-node2:26357,crdb-node3:26357
+      - --locality=region=uteq,zone=nodo3
+      - --store=/cockroach/cockroach-data
+    ports:
+      - "26259:26257"
+      - "8082:8080"
+    volumes:
+      - crdb-node3-data:/cockroach/cockroach-data
+    networks:
+      - crdb-network
+    restart: unless-stopped
+
+  crdb-init:
+    image: cockroachdb/cockroach:v25.2.3
+    container_name: crdb-init
+    depends_on:
+      - crdb-node1
+      - crdb-node2
+      - crdb-node3
+    command:
+      - init
+      - --insecure
+      - --host=crdb-node1:26357
+    networks:
+      - crdb-network
+    restart: "no"
+
+networks:
+  crdb-network:
+    driver: bridge
+
+volumes:
+  crdb-node1-data:
+  crdb-node2-data:
+  crdb-node3-data:
