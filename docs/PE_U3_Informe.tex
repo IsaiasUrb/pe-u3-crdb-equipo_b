@@ -1,0 +1,85 @@
+\documentclass[12pt,a4paper]{article}
+
+\addbibresource{referencias.bib}
+
+\hypersetup{
+  pdftitle={Implementacion y verificacion de un cluster de base de datos distribuida con CockroachDB aplicado al PFC FUVV},
+  pdfauthor={Equipo B},
+  pdfsubject={GA-SUM-03 / PE-U3 - Aplicaciones Distribuidas},
+  pdfkeywords={CockroachDB, bases de datos distribuidas, FUVV, laboratorios informaticos}
+}
+
+\setstretch{1.15}
+\setlength{\parindent}{1.25cm}
+\setlength{\parskip}{0.25em}
+
+\begin{document}
+
+\begin{titlepage}
+  \centering
+
+  {\large\bfseries UNIVERSIDAD TÉCNICA ESTATAL DE QUEVEDO\par}
+  \vspace{0.35cm}
+  {\large Facultad de Ciencias de la Computación\par}
+  {\large Carrera de Ingeniería de Software\par}
+
+  \vfill
+
+  {\large\bfseries APLICACIONES DISTRIBUIDAS (ISR-701)\par}
+  \vspace{0.6cm}
+  {\Large\bfseries GA-SUM-03 / PE-U3\par}
+  \vspace{0.35cm}
+  {\LARGE\bfseries Implementación y Verificación de un Clúster de Base de Datos Distribuida con CockroachDB\par}
+  \vspace{0.5cm}
+  {\Large aplicado al PFC\par}
+  \vspace{0.25cm}
+  {\Large\bfseries FUVV -- Laboratorios Informáticos\par}
+  \vspace{0.2cm}
+  {\large Reserva y monitoreo distribuido de laboratorios\par}
+
+  \vfill
+
+  \renewcommand{\arraystretch}{1.3}
+  \begin{tabular}{@{}>{\bfseries}p{4.1cm}p{9.0cm}@{}}
+    Equipo: & Equipo B \\
+    Unidad: & Unidad 3 -- Bases de Datos Distribuidas \\
+    Modalidad: & Grupal \\
+    Docente: & Gleiston C. Guerrero-Ulloa, M.Sc. \\
+    Período académico: & 2026--2027 PPA \\
+  \end{tabular}
+
+  \vspace{0.7cm}
+
+  {\large\bfseries Integrantes y PFC de origen\par}
+  \vspace{0.25cm}
+  \begin{tabular}{@{}cll@{}}
+    \toprule
+    \textbf{N.º} & \textbf{Integrante} & \textbf{PFC de origen} \\
+    \midrule
+    1 & [Lozano Morales José Alejandro] & [AGLS] \\
+    2 & [Sanchez Pilaloa Andy Paul] & [AGLS] \\
+    3 & [Urbina Isaias Romero Abraham] & [FUVV] \\
+    \bottomrule
+  \end{tabular}
+
+  \vspace{0.65cm}
+
+  \begin{minipage}{0.91\textwidth}
+    \textbf{Justificación de la selección del PFC.}
+    El dominio FUVV resulta apropiado para implementar una base de datos distribuida porque las reservas, los laboratorios, los equipos y los eventos de monitoreo generan información relacionada que puede crecer y consultarse desde distintas ubicaciones. La distribución por laboratorio o zona permite experimentar con fragmentación horizontal, mientras que la replicación protege la disponibilidad de reservas y estados operativos. Además, la concurrencia entre solicitudes simultáneas exige transacciones consistentes y ofrece un escenario claro para verificar tolerancia a fallos y recuperación mediante CockroachDB.
+  \end{minipage}
+
+  \vfill
+  {\large Quevedo, Ecuador\par}
+  {\large 2026\par}
+\end{titlepage}
+
+\pagenumbering{roman}
+\tableofcontents
+\clearpage
+
+\nocite{*}
+
+\printbibliography[heading=bibintoc,title={Bibliografía}]
+
+\end{document}
