@@ -92,6 +92,16 @@ CREATE INDEX idx_reporte_estado_fecha
     );
 
 -- ============================================================
+-- Índice adicional por equipo y fecha
+--
+-- Optimiza las consultas que relacionan los reportes con los
+-- equipos y recuperan los fallos más recientes de cada equipo.
+-- ============================================================
+
+CREATE INDEX idx_reporte_equipo_fecha
+    ON reporte_fallo (id_equipo, fecha_reporte DESC);
+
+-- ============================================================
 -- Configuración de zona de las particiones del índice
 -- ============================================================
 
@@ -152,3 +162,9 @@ OF INDEX reporte_fallo@idx_reporte_estado_fecha;
 SHOW ZONE CONFIGURATION
 FROM PARTITION idx_reporte_resuelto
 OF INDEX reporte_fallo@idx_reporte_estado_fecha;
+
+-- ============================================================
+-- Verificación de todos los índices de reporte_fallo
+-- ============================================================
+
+SHOW INDEXES FROM reporte_fallo;
