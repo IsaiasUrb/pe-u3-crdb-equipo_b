@@ -50,7 +50,7 @@ CREATE TABLE equipo (
                         marca STRING,
                         modelo STRING,
                         estado STRING NOT NULL DEFAULT 'OPERATIVO'
-                            CHECK (estado IN ('OPERATIVO', 'MANTENIMIENTO', 'DAÑADO', 'BAJA')),
+                            CHECK (estado IN ('OPERATIVO', 'MANTENIMIENTO', 'DANADO', 'BAJA')),
                         fecha_registro TIMESTAMPTZ NOT NULL DEFAULT now(),
                         CONSTRAINT fk_equipo_laboratorio
                             FOREIGN KEY (id_laboratorio)
