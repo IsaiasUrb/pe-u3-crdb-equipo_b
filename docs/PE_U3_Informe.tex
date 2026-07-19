@@ -1,6 +1,66 @@
 \documentclass[12pt,a4paper]{article}
 
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage[spanish,es-nodecimaldot]{babel}
+\usepackage{lmodern}
+\usepackage{microtype}
+\usepackage[a4paper,margin=2.5cm]{geometry}
+\usepackage{setspace}
+\usepackage{graphicx}
+\usepackage{float}
+\usepackage{booktabs}
+\usepackage{array}
+\usepackage{xcolor}
+\usepackage{amsmath}
+\usepackage{csquotes}
+\usepackage{listings}
+\usepackage[hidelinks]{hyperref}
+\usepackage[
+  backend=biber,
+  style=ieee,
+  sorting=none,
+  doi=true,
+  isbn=true,
+  url=false
+]{biblatex}
+
 \addbibresource{referencias.bib}
+
+\definecolor{codebackground}{RGB}{247,248,250}
+\definecolor{codecomment}{RGB}{70,110,75}
+\definecolor{codekeyword}{RGB}{26,70,130}
+\definecolor{codestring}{RGB}{145,55,45}
+
+\lstdefinelanguage{yaml}{
+  keywords={true,false,null,y,n},
+  keywordstyle=\color{codekeyword}\bfseries,
+  sensitive=false,
+  comment=[l]{\#},
+  commentstyle=\color{codecomment}\itshape,
+  stringstyle=\color{codestring},
+  morestring=[b]"
+}
+
+\lstset{
+  basicstyle=\ttfamily\footnotesize,
+  backgroundcolor=\color{codebackground},
+  frame=single,
+  rulecolor=\color{black!20},
+  numbers=left,
+  numberstyle=\tiny\color{black!55},
+  numbersep=8pt,
+  breaklines=true,
+  breakatwhitespace=false,
+  showstringspaces=false,
+  tabsize=2,
+  captionpos=b,
+  inputencoding=utf8,
+  literate=
+    {á}{{\'a}}1 {é}{{\'e}}1 {í}{{\'i}}1 {ó}{{\'o}}1 {ú}{{\'u}}1
+    {Á}{{\'A}}1 {É}{{\'E}}1 {Í}{{\'I}}1 {Ó}{{\'O}}1 {Ú}{{\'U}}1
+    {ñ}{{\~n}}1 {Ñ}{{\~N}}1 {ü}{{\"u}}1 {Ü}{{\"U}}1
+}
 
 \hypersetup{
   pdftitle={Implementacion y verificacion de un cluster de base de datos distribuida con CockroachDB aplicado al PFC FUVV},
@@ -77,6 +137,346 @@
 \pagenumbering{roman}
 \tableofcontents
 \clearpage
+
+\pagenumbering{arabic}
+
+\section{Diseño aplicado al PFC FUVV}
+\label{sec:diseno-fuvv}
+
+La solución experimental se aplicó al PFC FUVV -- Laboratorios Informáticos, cuyo dominio comprende la administración de laboratorios, equipos, usuarios, asignaciones, asistencias y reportes de fallos. El contexto de este proyecto resulta adecuado para una base de datos distribuida porque combina información administrativa con eventos operativos que pueden originarse simultáneamente desde distintos laboratorios. El diseño busca conservar las relaciones propias de un modelo SQL y, al mismo tiempo, distribuir el acceso a los reportes de monitoreo. Esta decisión concuerda con los principios de diseño de bases distribuidas, en los que fragmentación, asignación y replicación se estudian como decisiones relacionadas y no como operaciones aisladas \cite{ozsu2020distributed,abdalla2023rddbs}.
+
+\subsection{Organización del proyecto}
+
+El repositorio separa la definición del clúster, las sentencias SQL, los programas de carga y medición, la documentación y la evidencia. La Figura~\ref{fig:estructura-proyecto} muestra esta organización. El archivo \texttt{docker-compose.yml} contiene la topología de tres nodos; el directorio \texttt{sql/} conserva el esquema, la estrategia de particionamiento y las consultas; \texttt{scripts/} incluye la carga sintética y el benchmark; y \texttt{evidencia/} almacena las capturas y los resultados brutos. Esta separación permite reproducir cada fase y relacionar el resultado observado con el artefacto que lo produjo.
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=0.78\textwidth]{Distribuidas/GA-SUM-03-PE-U3/imagenes/estructura_proyecto.png}
+  \caption{Estructura de archivos utilizada para la implementación del clúster.}
+  \label{fig:estructura-proyecto}
+\end{figure}
+
+\subsection{Esquema relacional del dominio}
+
+La base de datos \texttt{gestion\_laboratorios} está compuesta por diez tablas relacionadas. La Tabla~\ref{tab:tablas-fuvv} resume su responsabilidad dentro del PFC. La separación entre entidades personales, recursos, actividades y eventos de monitoreo permite conservar integridad referencial mediante claves primarias y foráneas, y proporciona varias rutas de consulta representativas para evaluar el clúster.
+
+\begin{table}[H]
+  \centering
+  \caption{Tablas principales del esquema aplicado al PFC FUVV.}
+  \label{tab:tablas-fuvv}
+  \begin{tabular}{@{}p{4.2cm}p{9.1cm}@{}}
+    \toprule
+    \textbf{Tabla} & \textbf{Responsabilidad en el dominio} \\
+    \midrule
+    \texttt{persona} & Datos comunes de los usuarios registrados. \\
+    \texttt{docente} y \texttt{estudiante} & Especialización de las personas que utilizan los laboratorios. \\
+    \texttt{laboratorio} & Identificación, ubicación y características de cada laboratorio. \\
+    \texttt{equipo} & Inventario de equipos asociados con un laboratorio. \\
+    \texttt{materia} & Asignaturas vinculadas con el uso académico de los recursos. \\
+    \texttt{asignacion\_laboratorio} & Programación del uso de laboratorios por materia y docente. \\
+    \texttt{registro\_asistencia} & Cabecera de una sesión de asistencia. \\
+    \texttt{detalle\_asistencia} & Participación individual de estudiantes en cada sesión. \\
+    \texttt{reporte\_fallo} & Eventos de monitoreo y seguimiento de fallos de los equipos. \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+La tabla \texttt{reporte\_fallo} fue seleccionada como relación principal para el ejercicio de distribución. La elección se justifica porque sus filas representan eventos operativos que cambian de estado durante su ciclo de vida y se consultan frecuentemente junto con \texttt{equipo} y\texttt{laboratorio}. En consecuencia, permite estudiar tanto filtros puntuales como uniones y agregaciones vinculadas directamente con elmonitoreo del PFC.
+
+\subsection{Estrategia de fragmentación y replicación}
+
+La implementación utiliza particionamiento horizontal por lista sobre el atributo \texttt{estado}. Se definieron las particiones \texttt{reporte\_pendiente}, \texttt{reporte\_en\_proceso} y \texttt{reporte\_resuelto}. Antes de particionar, la clave primaria se transformó en la clave compuesta \texttt{(estado, id\_reporte)} para que el atributo de partición fuera prefijo de la clave. El Listado\ref{lst:fragmentacion-sql} presenta las sentencias principales.
+
+\begin{lstlisting}[
+  language=SQL,
+  caption={Fragmentación horizontal por lista y configuración de réplicas.},
+  label={lst:fragmentacion-sql}
+]
+ALTER TABLE reporte_fallo
+  ADD CONSTRAINT uq_reporte_fallo_id
+  UNIQUE (id_reporte);
+
+ALTER TABLE reporte_fallo
+  ALTER PRIMARY KEY USING COLUMNS (estado, id_reporte);
+
+ALTER TABLE reporte_fallo
+  PARTITION BY LIST (estado) (
+    PARTITION reporte_pendiente
+      VALUES IN ('PENDIENTE'),
+    PARTITION reporte_en_proceso
+      VALUES IN ('EN_PROCESO'),
+    PARTITION reporte_resuelto
+      VALUES IN ('RESUELTO')
+  );
+
+ALTER PARTITION reporte_pendiente
+OF TABLE reporte_fallo
+CONFIGURE ZONE USING
+  num_replicas = 3,
+  constraints = '{"+zone=nodo1": 1,
+                  "+zone=nodo2": 1,
+                  "+zone=nodo3": 1}',
+  lease_preferences = '[[+zone=nodo1]]';
+
+ALTER PARTITION reporte_en_proceso
+OF TABLE reporte_fallo
+CONFIGURE ZONE USING
+  num_replicas = 3,
+  constraints = '{"+zone=nodo1": 1,
+                  "+zone=nodo2": 1,
+                  "+zone=nodo3": 1}',
+  lease_preferences = '[[+zone=nodo2]]';
+
+ALTER PARTITION reporte_resuelto
+OF TABLE reporte_fallo
+CONFIGURE ZONE USING
+  num_replicas = 3,
+  constraints = '{"+zone=nodo1": 1,
+                  "+zone=nodo2": 1,
+                  "+zone=nodo3": 1}',
+  lease_preferences = '[[+zone=nodo3]]';
+\end{lstlisting}
+
+Cada partición conserva tres réplicas, con una restricción de ubicación para cada zona lógica: \texttt{nodo1}, \texttt{nodo2} y \texttt{nodo3}. La preferencia de leaseholder asigna prioritariamente los reportes pendientes al nodo 1, los reportes en proceso al nodo 2 y los resueltos al nodo 3. Por tanto, la estrategia no mantiene una única copia exclusiva en un nodo: distribuye la preferencia de atención mientras conserva tres copias para disponibilidad. Este comportamiento diferencia la ubicación preferida del leaseholder de la replicación física de los rangos, distinción importante en la arquitectura de CockroachDB \cite{taft2020cockroachdb,vanbenschoten2022multiregion}.
+
+La selección por estado beneficia consultas operativas como la bandeja de fallos pendientes o el seguimiento de incidencias en proceso. No obstante, el estado es mutable; por ello, cuando una incidencia cambia de estado puede ser necesario trasladar su clave al nuevo espacio particionado. Este costo deberá considerarse posteriormente en el análisis crítico. La literatura confirma que una estrategia de fragmentación debe evaluarse conjuntamente con el patrón real de acceso y el costo de redistribución \cite{danach2024fragmentation,schafer2020benchmarking}.
+
+\section{Procedimiento experimental}
+\label{sec:procedimiento}
+
+\subsection{Despliegue del clúster}
+
+El clúster se definió con tres servicios CockroachDB versión 25.2.3 y un servicio auxiliar de inicialización. Los servicios comparten una red bridge, pero mantienen volúmenes persistentes independientes. Los puertos SQL externos 26257, 26258 y 26259 permiten conectarse a cada nodo; las interfaces web se publican en 8080, 8081 y 8082. El parámetro \texttt{--join} proporciona la lista de nodos participantes y \texttt{--locality} asigna una zona distinta a cada contenedor. La configuración completa se presenta en el Listado \ref{lst:docker-compose}.
+
+\begin{lstlisting}[
+  language=yaml,
+  caption={Configuración Docker Compose del clúster CockroachDB de tres nodos.},
+  label={lst:docker-compose}
+]
+services:
+  crdb-node1:
+    image: cockroachdb/cockroach:v25.2.3
+    container_name: crdb-node1
+    hostname: crdb-node1
+    command:
+      - start
+      - --insecure
+      - --advertise-addr=crdb-node1:26357
+      - --listen-addr=crdb-node1:26357
+      - --sql-addr=crdb-node1:26257
+      - --http-addr=crdb-node1:8080
+      - --join=crdb-node1:26357,crdb-node2:26357,crdb-node3:26357
+      - --locality=region=uteq,zone=nodo1
+      - --store=/cockroach/cockroach-data
+    ports:
+      - "26257:26257"
+      - "8080:8080"
+    volumes:
+      - crdb-node1-data:/cockroach/cockroach-data
+    networks:
+      - crdb-network
+    restart: unless-stopped
+
+  crdb-node2:
+    image: cockroachdb/cockroach:v25.2.3
+    container_name: crdb-node2
+    hostname: crdb-node2
+    command:
+      - start
+      - --insecure
+      - --advertise-addr=crdb-node2:26357
+      - --listen-addr=crdb-node2:26357
+      - --sql-addr=crdb-node2:26257
+      - --http-addr=crdb-node2:8080
+      - --join=crdb-node1:26357,crdb-node2:26357,crdb-node3:26357
+      - --locality=region=uteq,zone=nodo2
+      - --store=/cockroach/cockroach-data
+    ports:
+      - "26258:26257"
+      - "8081:8080"
+    volumes:
+      - crdb-node2-data:/cockroach/cockroach-data
+    networks:
+      - crdb-network
+    restart: unless-stopped
+
+  crdb-node3:
+    image: cockroachdb/cockroach:v25.2.3
+    container_name: crdb-node3
+    hostname: crdb-node3
+    command:
+      - start
+      - --insecure
+      - --advertise-addr=crdb-node3:26357
+      - --listen-addr=crdb-node3:26357
+      - --sql-addr=crdb-node3:26257
+      - --http-addr=crdb-node3:8080
+      - --join=crdb-node1:26357,crdb-node2:26357,crdb-node3:26357
+      - --locality=region=uteq,zone=nodo3
+      - --store=/cockroach/cockroach-data
+    ports:
+      - "26259:26257"
+      - "8082:8080"
+    volumes:
+      - crdb-node3-data:/cockroach/cockroach-data
+    networks:
+      - crdb-network
+    restart: unless-stopped
+
+  crdb-init:
+    image: cockroachdb/cockroach:v25.2.3
+    container_name: crdb-init
+    depends_on:
+      - crdb-node1
+      - crdb-node2
+      - crdb-node3
+    command:
+      - init
+      - --insecure
+      - --host=crdb-node1:26357
+    networks:
+      - crdb-network
+    restart: "no"
+
+networks:
+  crdb-network:
+    driver: bridge
+
+volumes:
+  crdb-node1-data:
+  crdb-node2-data:
+  crdb-node3-data:
+\end{lstlisting}
+
+El despliegue se ejecutó mediante \texttt{docker compose up -d}; luego se consultó \texttt{docker compose ps}. Como muestra la Figura~\ref{fig:inicializacion-cluster}, los contenedores \texttt{crdb-node1}, \texttt{crdb-node2} y \texttt{crdb-node3} quedaron iniciados y con sus puertos publicados.
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=\textwidth]{Distribuidas/GA-SUM-03-PE-U3/imagenes/inicializacion_cluster.png}
+  \caption{Inicialización de los servicios y verificación de los tres contenedores.}
+  \label{fig:inicializacion-cluster}
+\end{figure}
+
+La comprobación visual se realizó en \url{http://localhost:8080/\#/overview/list}. La Figura~\ref{fig:dashboard-cluster} registra tres nodos vivos, ninguno sospechoso, en drenaje o fuera de servicio. Asimismo, el panel muestra 75 rangos totales y cero rangos subreplicados o no disponibles en el momento de la captura.
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=\textwidth]{Distribuidas/GA-SUM-03-PE-U3/imagenes/dashboard_cluster.png}
+  \caption{Dashboard de CockroachDB con los tres nodos en estado \texttt{LIVE}.}
+  \label{fig:dashboard-cluster}
+\end{figure}
+
+\subsection{Creación del esquema}
+
+El contenido de \texttt{sql/01\_schema.sql} se envió al nodo 1 mediante una canalización de PowerShell hacia el cliente SQL del contenedor. Después se ejecutó \texttt{SHOW TABLES} sobre \texttt{gestion\_laboratorios}. La salida de la Figura~\ref{fig:creacion-esquema} confirma la creación de las diez tablas y de los índices definidos por el esquema.
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=0.9\textwidth]{Distribuidas/GA-SUM-03-PE-U3/imagenes/creacion_esquema.png}
+  \caption{Creación y verificación del esquema relacional de FUVV.}
+  \label{fig:creacion-esquema}
+\end{figure}
+
+\subsection{Aplicación y verificación del particionamiento}
+
+Tras crear el esquema se ejecutó \texttt{sql/02\_partitions.sql}. La consulta \texttt{SHOW PARTITIONS FROM TABLE reporte\_fallo} permitió comprobar las particiones y su configuración. La Figura~\ref{fig:fragmentacion-horizontal} muestra los valores de partición y las políticas de zona asociadas.
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=\textwidth]{Distribuidas/GA-SUM-03-PE-U3/imagenes/fragmentacion_horizontal.png}
+  \caption{Verificación de las particiones horizontales de \texttt{reporte\_fallo}.}
+  \label{fig:fragmentacion-horizontal}
+\end{figure}
+
+Como control adicional se ejecutó \texttt{SHOW ZONE CONFIGURATIONS}. La Figura~\ref{fig:configuracion-zonas} evidencia las políticas existentes a nivel de rango, base de datos y objetos particionados. Esta consulta permite auditar el número de réplicas, las restricciones y las preferencias de leaseholder.
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=\textwidth]{Distribuidas/GA-SUM-03-PE-U3/imagenes/configuracion_zonas.png}
+  \caption{Verificación de las configuraciones de zona del clúster.}
+  \label{fig:configuracion-zonas}
+\end{figure}
+
+\subsection{Consultas de validación}
+
+Antes de poblar el esquema se ejecutó el archivo \texttt{sql/03\_queries.sql} para comprobar la sintaxis, los nombres de columnas y las relaciones utilizadas por las cinco consultas representativas. La Figura~\ref{fig:consultas-validacion} registra que CockroachDB aceptó las sentencias sin errores de referencia. Esta comprobación separó los problemas de definición SQL de posibles incidencias posteriores asociadas con el volumen de datos o con la medición de tiempos.
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=0.9\textwidth]{Distribuidas/GA-SUM-03-PE-U3/imagenes/consultas_validacion.png}
+  \caption{Ejecución de las consultas de validación del dominio FUVV.}
+  \label{fig:consultas-validacion}
+\end{figure}
+
+\subsection{Carga masiva y validación de datos}
+
+El script \texttt{scripts/seed\_data.py} generó información sintética para las diez tablas. Entre los valores configurados se encuentran 20 laboratorios, 50 docentes, 1\,500 estudiantes, 400 equipos, 600 asignaciones, 1\,200 registros de asistencia, 9\,000 detalles y 2\,500 reportes de fallo. El total informado por el proceso fue de 15\,330 registros de prueba. La Figura~\ref{fig:carga-masiva} conserva la evidencia de la ejecución.
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=0.82\textwidth]{Distribuidas/GA-SUM-03-PE-U3/imagenes/carga_masiva.png}
+  \caption{Carga masiva de datos sintéticos mediante \texttt{seed\_data.py}.}
+  \label{fig:carga-masiva}
+\end{figure}
+
+Posteriormente se agrupó \texttt{reporte\_fallo} por estado para comprobar que las tres categorías contuvieran datos. La Figura~\ref{fig:verificacion-registros} muestra resultados para \texttt{PENDIENTE}, \texttt{EN\_PROCESO} y \texttt{RESUELTO}; por tanto, las particiones utilizadas por las consultas de validación no quedaron vacías.
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=0.88\textwidth]{Distribuidas/GA-SUM-03-PE-U3/imagenes/verificacion_registros.png}
+  \caption{Conteo de reportes insertados para cada estado.}
+  \label{fig:verificacion-registros}
+\end{figure}
+
+\subsection{Ejecución del benchmark del clúster}
+
+El programa \texttt{scripts/run\_benchmark.py} abrió conexiones independientes a los puertos de los tres nodos. Se evaluaron cinco consultas: dos filtros por estado, una unión entre reportes, equipos y laboratorios, una agregación por laboratorio y una consulta de equipos con mayor cantidad de fallos. Antes de medir cada consulta se realizó una ejecución de calentamiento; a continuación se registraron diez repeticiones. El diseño produjo $3\times5\times10=150$ observaciones con tiempo de ejecución y número de filas.
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=0.82\textwidth]{Distribuidas/GA-SUM-03-PE-U3/imagenes/benchmark_cluster.png}
+  \caption{Ejecución de las cinco consultas sobre los tres nodos del clúster.}
+  \label{fig:benchmark-cluster}
+\end{figure}
+
+Los resultados brutos se almacenaron en\texttt{evidencia/resultados.csv}, como se observa en la Figura~\ref{fig:resultados-csv}. Conservar cada repetición, en lugar de solo el promedio, permite revisar dispersión, valores extremos y estabilidad. Esta precaución es relevante porque una comparación de SGBD debe hacer explícitos el protocolo experimental y la variabilidad de las mediciones \cite{taipalus2024performance,pina2023newsql}.
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=0.75\textwidth]{Distribuidas/GA-SUM-03-PE-U3/imagenes/resultados_csv.png}
+  \caption{Mediciones individuales conservadas en \texttt{resultados.csv}.}
+  \label{fig:resultados-csv}
+\end{figure}
+
+\section{Resultados iniciales}
+\label{sec:resultados-iniciales}
+
+La evidencia reunida confirma que el clúster se inicializó con tres nodos y que los tres aceptaron conexiones durante el procedimiento. El dashboard no registró rangos subreplicados ni indisponibles en el instante observado. El esquema de FUVV quedó creado con diez tablas y el conjunto de prueba alcanzó 15\,330 registros. Asimismo, la partición de \texttt{reporte\_fallo} por estado y las preferencias de leaseholder quedaron visibles mediante las consultas administrativas.
+
+La Tabla~\ref{tab:promedios-cluster} resume los promedios calculados a partir del archivo CSV actualmente almacenado en el repositorio. La captura de la Figura~\ref{fig:benchmark-cluster} documenta una ejecución del proceso, mientras que la tabla corresponde a la versión más reciente del CSV; por esta razón pueden existir diferencias menores entre los valores visibles en la terminal y los promedios aquí presentados.
+
+\begin{table}[H]
+  \centering
+  \caption{Tiempo promedio por consulta y punto de acceso del clúster (ms).}
+  \label{tab:promedios-cluster}
+  \small
+  \begin{tabular}{@{}p{6.4cm}rrr@{}}
+    \toprule
+    \textbf{Consulta} & \textbf{Nodo 1} & \textbf{Nodo 2} & \textbf{Nodo 3} \\
+    \midrule
+    Q1: reportes pendientes & 3.7787 & 6.2745 & 5.8180 \\
+    Q2: reportes en proceso & 9.5671 & 7.7611 & 10.5002 \\
+    Q3: reportes resueltos con uniones & 9.1867 & 7.7361 & 5.8577 \\
+    Q4: reportes agrupados por laboratorio & 9.0778 & 8.2783 & 10.6400 \\
+    Q5: equipos con más fallos & 11.3778 & 10.8018 & 9.3147 \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+Los resultados muestran que el punto de acceso con menor tiempo depende de la consulta. El nodo 1 obtuvo el menor promedio en Q1; el nodo 2 en Q2 y Q4; y el nodo 3 en Q3 y Q5. Esta variación es compatible con la existencia de leaseholders preferidos y con las diferencias entre filtros, uniones y agregaciones. Sin embargo, los datos actuales no permiten atribuir causalidad de forma definitiva: para ello deberán conservarse los planes de \texttt{EXPLAIN ANALYZE}, controlar el estado de la caché y repetir el experimento bajo condiciones equivalentes.
+
+\paragraph{Alcance de estos resultados.}
+Las cifras anteriores comparan conexiones a tres nodos pertenecientes al mismo clúster; no constituyen todavía la comparación requerida entre un clúster distribuido y una instancia independiente de nodo único. Por tanto, no se calcula aún el factor de mejora exigido por la rúbrica. También permanecen pendientes la evidencia de \texttt{SHOW RANGES}, la prueba de caída y reintegración de un nodo, el tiempo de recuperación y el video continuo de tolerancia a fallos. Estas limitaciones se declaran expresamente para no presentar como concluida una fase experimental que todavía requiere nuevas mediciones.
 
 \nocite{*}
 
