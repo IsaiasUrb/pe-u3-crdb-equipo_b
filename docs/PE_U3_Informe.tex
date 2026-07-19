@@ -15,6 +15,7 @@
 \usepackage{amsmath}
 \usepackage{csquotes}
 \usepackage{listings}
+\usepackage{amssymb}
 \usepackage[hidelinks]{hyperref}
 \usepackage[
   backend=biber,
@@ -139,6 +140,137 @@
 \clearpage
 
 \pagenumbering{arabic}
+
+\begin{abstract}
+Este informe presenta el diseño y la implementación experimental de un clúster de base de datos distribuida con CockroachDB aplicado al PFC FUVV -- Laboratorios Informáticos. La solución organiza la información de usuarios, laboratorios, equipos, asignaciones, asistencias y reportes de fallos en un esquema relacional de diez tablas. El entorno fue desplegado mediante Docker Compose sobre tres nodos, con volúmenes persistentes, localidades lógicas y replicación de los datos. Como estrategia de distribución se aplicó particionamiento horizontal por lista sobre el estado de los reportes de fallo, con preferencias de leaseholder diferenciadas para cada partición. Se generó un conjunto de 15\,330 registros sintéticos y se ejecutaron cinco consultas representativas, con diez repeticiones en cada uno de los tres puntos de acceso, para un total de 150 mediciones. Los resultados disponibles confirman el funcionamiento de los tres nodos y muestran variaciones de latencia según la consulta y el punto de acceso. La comparación con nodo único y la prueba controlada de tolerancia a fallos se mantienen como fases pendientes, por lo que las cifras expuestas se consideran resultados iniciales y no una conclusión definitiva sobre el rendimiento relativo del clúster.
+\end{abstract}
+
+\noindent\textbf{Palabras clave:} base de datos distribuida, CockroachDB, fragmentación horizontal, replicación, consenso Raft, laboratorios informáticos.
+
+\section{Introducción}
+\label{sec:introduccion}
+
+Los sistemas de información que atienden varias ubicaciones deben conservar una visión lógica coherente de los datos aun cuando el almacenamiento, el procesamiento y las comunicaciones se distribuyan entre distintos nodos. Una base de datos distribuida persigue precisamente esa integración: ofrece a las aplicaciones una interfaz común mientras coordina fragmentos, réplicas,transacciones y fallos en una infraestructura descentralizada. Este enfoque puede mejorar escalabilidad, proximidad de acceso y continuidad operativa, pero introduce costos de coordinación que no aparecen con la misma intensidad en una instancia centralizada \cite{ozsu2020distributed,kleppmann2017ddia}.
+
+El PFC FUVV -- Laboratorios Informáticos comprende la reserva, administración y supervisión de laboratorios y equipos. En este dominio pueden coincidir solicitudes de uso, registros de asistencia y reportes de fallos generados desde diferentes espacios físicos. Una solución distribuida debe impedir, por ejemplo, que dos operaciones concurrentes produzcan estados incompatibles para una reserva o que un fallo de infraestructura vuelva inaccesible toda la información operativa. Por ello, el dominio permite estudiar de manera concreta la fragmentación, la replicación, la consistencia transaccional y la tolerancia a fallos.
+
+CockroachDB fue seleccionado como plataforma experimental porque combina una interfaz SQL relacional con replicación por consenso, transacciones distribuidas y escalabilidad horizontal. Su arquitectura divide el espacio de claves en rangos replicados y coordina las modificaciones mediante grupos de consenso, mientras ofrece aislamiento serializable a las aplicaciones. Estas propiedades buscan mantener la corrección de las transacciones frente a fallos de nodos y particiones de red, aunque la coordinación puede aumentar la latencia de ciertas operaciones \cite{taft2020cockroachdb,vanbenschoten2022multiregion}.
+
+La práctica se organiza como un experimento reproducible. Primero se diseña el esquema de datos de FUVV y la estrategia de particionamiento; después se despliega un clúster de tres nodos, se cargan datos sintéticos y se verifican las configuraciones de distribución. Finalmente se ejecutan consultas representativas y se conservan las mediciones brutas para su análisis. El informe distingue entre evidencia ya obtenida y actividades pendientes, de modo que la interpretación no atribuya al clúster ventajas que todavía no han sido contrastadas contra una instancia independiente de nodo único.
+
+\subsection{Objetivos}
+
+\textbf{Objetivo general.} Implementar, configurar y verificar un clúster funcional de base de datos distribuida de tres nodos aplicado al PFC FUVV,demostrando la distribución y replicación de los datos, su comportamiento ante fallos y el rendimiento de consultas representativas.
+
+\textbf{Objetivos específicos.}
+\begin{enumerate}
+  \item Configurar tres nodos CockroachDB en contenedores Docker con red y almacenamiento persistente.
+  \item Implementar el esquema relacional de laboratorios informáticos y una estrategia explícita de fragmentación horizontal.
+  \item Verificar la carga, distribución y replicación de los datos mediante consultas SQL y evidencia del clúster.
+  \item Comprobar experimentalmente la continuidad del servicio ante la caída y posterior reintegración de un nodo.
+  \item Comparar cinco consultas del PFC en el clúster y en una instancia de nodo único, relacionando los tiempos con sus planes de ejecución.
+\end{enumerate}
+
+\subsection{Organización del informe}
+
+Después de esta introducción se presenta el fundamento teórico sobre arquitecturas distribuidas, fragmentación, replicación, concurrencia, consenso y modelos de consistencia. A continuación se describe el diseño aplicado a FUVV, el procedimiento experimental y los resultados disponibles. Las secciones finales se reservarán para el análisis crítico, las preguntas obligatorias, las conclusiones individuales, la declaración de uso de IA y la bibliografía en formato IEEE.
+
+\section{Fundamento teórico}
+\label{sec:fundamento-teorico}
+
+\subsection{Fundamentos y arquitecturas de bases de datos distribuidas}
+\label{subsec:fundamentos-bdd}
+
+Una base de datos distribuida es una colección lógicamente integrada de datos que se almacena físicamente en varios sitios conectados por una red. El sistema de gestión de bases de datos distribuidas añade los mecanismos necesarios para presentar esa colección como una sola base: localiza los datos, transforma onsultas globales en operaciones sobre fragmentos, coordina transacciones y mantiene la coherencia entre réplicas. La distribución no equivale simplemente a permitir conexiones remotas a un servidor central; requiere que parte del almacenamiento o del procesamiento resida en nodos autónomos y que el sistema oculte, hasta donde resulte posible, la complejidad de su coordinación \cite{ozsu2020distributed,kleppmann2017ddia}.
+
+Los objetivos atribuidos a Date constituyen una referencia para evaluar esa transparencia. Comprenden autonomía local; ausencia de dependencia de un sitio central; operación continua; independencia de ubicación; independencia de fragmentación; independencia de replicación; procesamiento distribuido de consultas; gestión distribuida de transacciones; independencia del hardware; independencia del sistema operativo; independencia de la red; e independencia del SGBD. No todos se alcanzan de forma absoluta en una plataforma concreta,pero sirven para separar la visión lógica ofrecida al usuario de las decisiones físicas de despliegue. En FUVV, por ejemplo, una consulta de reportes no debería exigir que el usuario conozca qué nodo mantiene el leaseholder del rango ni cuántas réplicas intervienen en la lectura \cite{ozsu2020distributed,taft2020cockroachdb}.
+
+Las arquitecturas distribuidas pueden organizarse de diferentes maneras. En una arquitectura cliente-servidor, los clientes formulan solicitudes y uno o varios servidores especializados almacenan y procesan datos. En una arquitectura colaborativa o entre pares, los nodos pueden actuar tanto como solicitantes como proveedores y participan en la ejecución global. Una capa de middleware, por su parte, proporciona servicios comunes sobre fuentes que pueden haber sido diseñadas de forma independiente: traducción de consultas, catálogo global, seguridad o coordinación transaccional. CockroachDB adopta una arquitectura distribuida homogénea en la que todos los nodos ejecutan el mismo software y pueden recibir tráfico SQL, mientras la capa interna enruta las operaciones hacia los rangos correspondientes \cite{taft2020cockroachdb,vanbenschoten2022multiregion}.
+
+La transparencia puede analizarse en ocho dimensiones complementarias. La transparencia de fragmentación oculta la división de una relación; la de replicación evita que la aplicación administre copias; la de ubicación separa los nombres lógicos de los sitios físicos; y la de acceso ofrece operaciones uniformes para datos locales y remotos. La transparencia de concurrencia busca que las transacciones simultáneas produzcan resultados equivalentes a una ejecución correcta; la de fallos preserva propiedades definidas cuando ciertos componentes dejan de responder; la de escalabilidad permite aumentar nodos o carga sin rediseñar por completo la aplicación; y la de evolución facilita cambios del esquema o la infraestructura. Estas transparencias tienen límites: la latencia y la disponibilidad observables pueden revelar la distribución,aunque la interfaz lógica permanezca estable \cite{kleppmann2017ddia,vansteen2023distributed}.
+
+Finalmente, una BDD homogénea emplea modelos de datos, protocolos y SGBD compatibles entre los sitios, lo que simplifica catálogo, optimización y transacciones. Una BDD heterogénea integra plataformas o esquemas diferentes y necesita resolver incompatibilidades sintácticas, semánticas y operativas. El clúster de esta práctica es homogéneo porque los tres nodos ejecutan la misma versión de CockroachDB y comparten un único esquema. Sin embargo, el análisis de heterogeneidad sigue siendo relevante para una evolución futura de FUVV que integre sensores, inventarios externos o servicios institucionales mediante middleware \cite{ozsu2020distributed,abdalla2023rddbs}.
+
+\subsection{Fragmentación y replicación de datos}
+\label{subsec:fragmentacion-replicacion}
+
+La fragmentación divide una relación global en subconjuntos que pueden almacenarse o procesarse de forma separada. Su diseño debe cumplir condiciones de corrección para que la distribución no altere el significado de la base. Sea una relación $R$ y un conjunto de predicados $p_1,\ldots,p_n$. La fragmentación horizontal primaria produce cada fragmento mediante selección:
+
+\begin{equation}
+  R_i = \sigma_{p_i}(R), \qquad 1 \leq i \leq n.
+  \label{eq:fragmentacion-horizontal}
+\end{equation}
+
+La condición de completitud exige que cada tupla de la relación global aparezca en al menos un fragmento. Si los predicados cubren el dominio de la clave de fragmentación, se expresa como:
+
+\begin{equation}
+  \bigcup_{i=1}^{n} R_i = R.
+  \label{eq:completitud}
+\end{equation}
+
+La reconstrucción establece que debe existir una operación relacional capaz de recuperar $R$ a partir de sus fragmentos. Para una fragmentación horizontal completa, esa operación es la unión:
+
+\begin{equation}
+  R = R_1 \cup R_2 \cup \cdots \cup R_n.
+  \label{eq:reconstruccion-horizontal}
+\end{equation}
+
+Cuando se exige disjunción, una tupla no debe pertenecer simultáneamente a dos fragmentos distintos:
+
+\begin{equation}
+  R_i \cap R_j = \varnothing, \qquad \forall i \neq j.
+  \label{eq:disjuncion}
+\end{equation}
+
+Estas propiedades evitan pérdida, duplicación no intencional y resultados ambiguos durante la reconstrucción. En FUVV, los predicados \texttt{estado='PENDIENTE'}, \texttt{estado='EN\_PROCESO'} y \texttt{estado='RESUELTO'} son mutuamente excluyentes; serán completos siempre que el dominio permitido de \texttt{estado} se limite a esos tres valores \cite{ozsu2020distributed,danach2024fragmentation}.
+
+La fragmentación horizontal derivada distribuye una relación basándose en la fragmentación de otra con la que mantiene una relación semántica. Si $S_i=\sigma_{p_i}(S)$ son fragmentos de $S$ y $R$ contiene una clave foránea que referencia a $S$, puede definirse:
+
+\begin{equation}
+  R_i = R \ltimes_{R.k=S.k} S_i.
+  \label{eq:fragmentacion-derivada}
+\end{equation}
+
+La semijunta conserva en $R_i$ las tuplas relacionadas con el fragmento $S_i$. Aplicado a FUVV, si \texttt{laboratorio} se fragmentara por zona, los equipos podrían fragmentarse de manera derivada según el laboratorio al que pertenecen. Esta colocación favorece uniones locales, aunque debe conservarse la completitud de las relaciones y tratar explícitamente los casos sin correspondencia \cite{ozsu2020distributed,schafer2020benchmarking}.
+
+En la fragmentación vertical se agrupan atributos en lugar de tuplas. Cada fragmento debe conservar una clave o identificador de tupla $K$ para permitir la reconstrucción. Si $A_i$ es un subconjunto de atributos, se define $R_i=\pi_{K\cup A_i}(R)$ y la relación global se recupera mediante:
+
+\begin{equation}
+  R = R_1 \bowtie_K R_2 \bowtie_K \cdots \bowtie_K R_n.
+  \label{eq:reconstruccion-vertical}
+\end{equation}
+
+La afinidad de atributos estima qué columnas se consultan juntas para evitar uniones frecuentes entre fragmentos. La fragmentación mixta aplica de forma sucesiva operaciones horizontales y verticales; ofrece mayor flexibilidad,pero también incrementa la complejidad del catálogo, la optimización y la reconstrucción \cite{ozsu2020distributed,abdalla2023rddbs}.
+
+La replicación mantiene copias de un fragmento en varios nodos. En un esquema síncrono, una escritura se confirma cuando alcanza el criterio de acuerdo definido, lo que reduce la posibilidad de lecturas obsoletas a costa de latencia y dependencia del quórum. En uno asíncrono, el nodo principal puede responder antes de que todas las copias reciban el cambio; esto favorece la latencia y disponibilidad local, pero abre una ventana de inconsistencia. CockroachDB replica rangos y utiliza consenso para ordenar las modificaciones: la confirmación depende de una mayoría, no de que todos los nodos respondan. En la práctica de FUVV se configuraron tres réplicas, una por zona lógica, y preferencias de leaseholder distintas para las particiones. De este modo, la partición orienta la ubicación preferida del tráfico, mientras la replicación preserva copias para mantener disponibilidad ante una falla minoritaria \cite{taft2020cockroachdb,vanbenschoten2022multiregion}.
+
+\subsection{Control de concurrencia distribuido y consenso Raft}
+\label{subsec:concurrencia-raft}
+
+El control de concurrencia debe impedir que transacciones simultáneas violen las reglas de integridad o expongan estados intermedios. En una base distribuida el problema se amplía porque los datos y las decisiones pueden residir en nodos diferentes, los mensajes sufren demoras y un participante puede fallar mientras otros continúan activos. La serializabilidad establece que el efecto de una ejecución concurrente debe ser equivalente al de algún orden secuencial de las mismas transacciones. Para FUVV esta propiedad es relevante cuando varias solicitudes intentan reservar el mismo laboratorio o cuando un reporte cambia de estado mientras otro proceso consulta la disponibilidad del equipo \cite{ozsu2020distributed,kleppmann2017ddia}.
+
+El bloqueo en dos fases (2PL) separa la vida de una transacción en una fase de crecimiento, durante la cual adquiere bloqueos, y otra de decrecimiento, en la que los libera sin obtener nuevos. El 2PL estricto conserva los bloqueos de escritura hasta confirmar o abortar, evitando que otras transacciones observen cambios no comprometidos y simplificando la recuperación. En un entorno distribuido, los gestores de bloqueo deben coordinar recursos ubicados en varios sitios. Esto puede generar interbloqueos globales que no son visibles desde un único nodo. Un grafo \textit{wait-for} representa una arista $T_i\rightarrow T_j$ cuando $T_i$ espera un recurso retenido por $T_j$; un ciclo indica un deadlock y obliga a seleccionar una transacción víctima \cite{ozsu2020distributed,vansteen2023distributed}.
+
+La atomicidad entre participantes suele explicarse mediante el protocolo de commit en dos fases (2PC). En la fase de preparación, el coordinador solicita a cada participante que vote después de asegurar localmente que puede confirmar. Si todos votan afirmativamente, en la segunda fase se comunica la decisión de commit; cualquier voto negativo conduce al aborto. El protocolo conserva una decisión uniforme, pero puede bloquear participantes preparados si el coordinador falla antes de comunicar la resolución. El 3PC incorpora una fase intermedia y supuestos temporales para reducir ciertos escenarios de bloqueo,aunque aumenta mensajes y no elimina todos los problemas en redes asíncronas. Los sistemas modernos también emplean optimizaciones, registros replicados o flujos con estado para disminuir el costo de coordinación\cite{gupta2020agreement,deheus2022transactions}.
+
+El consenso resuelve un problema diferente pero relacionado: conseguir que réplicas no defectuosas acuerden un orden de operaciones. Raft organiza cada grupo en seguidores, candidatos y un líder. Los seguidores esperan mensajes periódicos; si expira el temporizador de elección, un nodo pasa a candidato,incrementa el término y solicita votos. Un candidato que obtiene mayoría se convierte en líder. El líder recibe comandos, los incorpora a su log y los replica; una entrada se considera comprometida cuando una mayoría la ha almacenado bajo las reglas del protocolo. Los términos, la restricción de voto y la coincidencia de prefijos impiden que dos historiales incompatibles se consideren simultáneamente comprometidos\cite{taft2020cockroachdb,lewchenko2025strongconsistency}.
+
+CockroachDB divide los datos en rangos y asocia cada rango con un grupo de réplicas coordinado por consenso. El leaseholder atiende gran parte de las solicitudes y dirige propuestas hacia el grupo Raft, pero la durabilidad de una escritura no depende de una sola máquina. Con tres réplicas, la mayoría es dos; por ello, el sistema puede continuar confirmando operaciones si un nodo falla,siempre que las dos réplicas restantes puedan comunicarse. Si se pierde la mayoría, se prioriza la seguridad y el rango deja de aceptar operaciones que no puedan acordarse. Esta relación entre quórum, orden del log y transacciones serializables constituye la base de la prueba de tolerancia a fallos pendiente en FUVV \cite{taft2020cockroachdb,vanbenschoten2022multiregion}.
+
+\subsection{Consistencia, disponibilidad, PACELC y sistemas NewSQL/NoSQL}
+\label{subsec:cap-pacelc}
+
+El teorema CAP formaliza una limitación de los sistemas de datos replicados: cuando existe una partición de red que impide la comunicación entre grupos de nodos, no es posible garantizar simultáneamente consistencia fuerte y disponibilidad para todas las solicitudes. En este contexto, consistencia significa que las operaciones respetan una visión única compatible con el orden definido por el sistema; disponibilidad exige que toda solicitud a un nodo no fallido reciba una respuesta, aunque esta no pueda incorporar los cambios del otro lado de la partición. La tolerancia a particiones no es una preferencia que pueda eliminarse cuando la red realmente se divide: el diseño debe decidir qué garantía sacrifica durante ese evento \cite{gilbert2002cap,viotti2016consistency}.
+
+CAP describe el escenario de partición, pero no caracteriza el comportamiento durante la operación normal. El modelo PACELC amplía el análisis: si ocurre una partición (P), se elige entre disponibilidad (A) y consistencia (C); en ausencia de partición (E, \textit{else}), persiste una elección entre latencia (L) y consistencia (C). Esta formulación muestra que incluso una red saludable paga el costo de coordinar réplicas cuando exige garantías fuertes. Los mecanismos basados en quórum permiten variar el número de réplicas requeridas para leer y escribir, modificando el equilibrio entre datos recientes, latencia y probabilidad de respuesta \cite{noudoust2022quorum,ferreira2024consistency}.
+
+Los modelos de consistencia forman un espectro. La consistencia linealizable ordena cada operación como si ocurriera en un instante entre su invocación y respuesta; la serializabilidad ordena transacciones completas de manera equivalente a una ejecución secuencial. La consistencia causal preserva relaciones de causa y efecto, mientras la consistencia eventual permite divergencia temporal con la expectativa de convergencia si cesan las actualizaciones. No son etiquetas intercambiables: una base puede ofrecer serializabilidad transaccional y, además, garantías específicas para lecturas en tiempo real. La elección debe relacionarse con las anomalías que la aplicación puede tolerar \cite{viotti2016consistency,kleppmann2017ddia}.
+
+Los sistemas NoSQL suelen clasificarse por su modelo de datos. Los almacenes clave-valor priorizan acceso por clave y escalabilidad; Dynamo constituye una referencia para replicación y disponibilidad con reconciliación de versiones. Las bases documentales, como MongoDB, almacenan estructuras flexibles; las de columnas anchas, como Cassandra, distribuyen filas según claves de partición y ofrecen niveles de consistencia configurables; y las bases de grafos optimizan recorridos entre entidades relacionadas. Spanner y los sistemas NewSQL siguen otra dirección: conservan un modelo relacional y transacciones fuertes mientras distribuyen almacenamiento y procesamiento. Spanner utiliza tiempo coordinado y replicación para transacciones globales, mientras CockroachDB adopta rangos,consenso y una interfaz compatible con SQL\cite{decandia2007dynamo,corbett2013spanner}.
+
+En una comparación cualitativa, CockroachDB prioriza consistencia serializable y continuidad mientras exista quórum; durante una partición que impide formar mayoría, rechaza operaciones antes que confirmar historiales incompatibles. Cassandra suele favorecer disponibilidad y rendimiento distribuido mediante consistencia ajustable, por lo que ciertas configuraciones aceptan lecturas temporalmente obsoletas. MongoDB emplea una arquitectura de primario y secundarios con opciones de preocupación de lectura y escritura; su posición no debe reducirse a una etiqueta única porque depende de la configuración. En los tres casos, topología, factor de replicación y política de confirmación afectan el equilibrio entre consistencia, disponibilidad y latencia \cite{ferreira2024consistency,taipalus2024performance}.
+
+Para FUVV se prefiere CockroachDB porque una reserva duplicada, una asignación contradictoria o un estado de equipo perdido representan errores funcionales,no simples retrasos de visualización. La consistencia fuerte facilita imponer restricciones y transacciones sobre varias tablas, mientras el quórum de tres réplicas permite tolerar la caída de un nodo. El costo esperado es una mayor coordinación frente a alternativas eventualmente consistentes; por eso el benchmark debe medir latencia sin confundir velocidad con corrección. Esta elección corresponde a una postura PC durante particiones y EC en la rama normal de PACELC: se prioriza consistencia aun cuando ello implique coordinación adicional \cite{taft2020cockroachdb,noudoust2022quorum}.
 
 \section{Diseño aplicado al PFC FUVV}
 \label{sec:diseno-fuvv}
@@ -477,8 +609,6 @@ Los resultados muestran que el punto de acceso con menor tiempo depende de la co
 
 \paragraph{Alcance de estos resultados.}
 Las cifras anteriores comparan conexiones a tres nodos pertenecientes al mismo clúster; no constituyen todavía la comparación requerida entre un clúster distribuido y una instancia independiente de nodo único. Por tanto, no se calcula aún el factor de mejora exigido por la rúbrica. También permanecen pendientes la evidencia de \texttt{SHOW RANGES}, la prueba de caída y reintegración de un nodo, el tiempo de recuperación y el video continuo de tolerancia a fallos. Estas limitaciones se declaran expresamente para no presentar como concluida una fase experimental que todavía requiere nuevas mediciones.
-
-\nocite{*}
 
 \printbibliography[heading=bibintoc,title={Bibliografía}]
 
