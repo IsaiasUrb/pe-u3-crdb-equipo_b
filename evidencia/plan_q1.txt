@@ -1,0 +1,46 @@
+﻿info
+planning time: 316┬Ás
+execution time: 4ms
+distribution: local
+vectorized: true
+plan type: generic, reused
+rows decoded from KV: 200 (18 KiB, 2 gRPC calls)
+cumulative time spent in KV: 3ms
+maximum memory usage: 196 KiB
+DistSQL network usage: 0 B (0 messages)
+regions: uteq
+sql cpu time: 260┬Ás
+isolation level: serializable
+priority: normal
+quality of service: regular
+
+ÔÇó index join (streamer)
+Ôöé sql nodes: n1
+Ôöé kv nodes: n1
+Ôöé regions: uteq
+Ôöé actual row count: 100
+Ôöé KV time: 2ms
+Ôöé KV rows decoded: 100
+Ôöé KV bytes read: 12 KiB
+Ôöé KV gRPC calls: 1
+Ôöé estimated max memory allocated: 160 KiB
+Ôöé estimated max sql temp disk usage: 0 B
+Ôöé sql cpu time: 208┬Ás
+Ôöé estimated row count: 100
+Ôöé table: reporte_fallo@reporte_fallo_pkey
+Ôöé
+ÔööÔöÇÔöÇ ÔÇó scan
+"      sql nodes: n1"
+"      kv nodes: n1"
+"      regions: uteq"
+"      actual row count: 100"
+"      KV time: 1ms"
+"      KV rows decoded: 100"
+"      KV bytes read: 6.5 KiB"
+"      KV gRPC calls: 1"
+"      estimated max memory allocated: 20 KiB"
+"      sql cpu time: 52┬Ás"
+"      estimated row count: 100 (4.0% of the table; stats collected 40 minutes ago)"
+"      table: reporte_fallo@idx_reporte_estado_fecha"
+"      spans: [/'PENDIENTE' - /'PENDIENTE']"
+"      limit: 100"
