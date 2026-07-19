@@ -79,24 +79,11 @@
 \begin{titlepage}
   \centering
 
-  {\large\bfseries UNIVERSIDAD TÉCNICA ESTATAL DE QUEVEDO\par}
-  \vspace{0.35cm}
-  {\large Facultad de Ciencias de la Computación\par}
-  {\large Carrera de Ingeniería de Software\par}
+{\large\bfseries UNIVERSIDAD TÉCNICA ESTATAL DE QUEVEDO\par} \vspace{0.35cm} {\large Facultad de Ciencias de la Computación\par} {\large Carrera de Ingeniería de Software\par}
 
   \vfill
 
-  {\large\bfseries APLICACIONES DISTRIBUIDAS (ISR-701)\par}
-  \vspace{0.6cm}
-  {\Large\bfseries GA-SUM-03 / PE-U3\par}
-  \vspace{0.35cm}
-  {\LARGE\bfseries Implementación y Verificación de un Clúster de Base de Datos Distribuida con CockroachDB\par}
-  \vspace{0.5cm}
-  {\Large aplicado al PFC\par}
-  \vspace{0.25cm}
-  {\Large\bfseries FUVV -- Laboratorios Informáticos\par}
-  \vspace{0.2cm}
-  {\large Reserva y monitoreo distribuido de laboratorios\par}
+{\large\bfseries APLICACIONES DISTRIBUIDAS (ISR-701)\par} \vspace{0.6cm} {\Large\bfseries GA-SUM-03 / PE-U3\par} \vspace{0.35cm} {\LARGE\bfseries Implementación y Verificación de un Clúster de Base de Datos Distribuida con CockroachDB\par} \vspace{0.5cm} {\Large aplicado al PFC\par} \vspace{0.25cm} {\Large\bfseries FUVV -- Laboratorios Informáticos\par} \vspace{0.2cm} {\large Reserva y monitoreo distribuido de laboratorios\par}
 
   \vfill
 
@@ -142,7 +129,7 @@
 \pagenumbering{arabic}
 
 \begin{abstract}
-Este informe presenta el diseño y la implementación experimental de un clúster de base de datos distribuida con CockroachDB aplicado al PFC FUVV -- Laboratorios Informáticos. La solución organiza la información de usuarios, laboratorios, equipos, asignaciones, asistencias y reportes de fallos en un esquema relacional de diez tablas. El entorno fue desplegado mediante Docker Compose sobre tres nodos, con volúmenes persistentes, localidades lógicas y replicación de los datos. Como estrategia de distribución se aplicó particionamiento horizontal por lista sobre el estado de los reportes de fallo, con preferencias de leaseholder diferenciadas para cada partición. Se generó un conjunto de 15\,330 registros sintéticos y se ejecutaron cinco consultas representativas, con diez repeticiones en cada uno de los tres puntos de acceso, para un total de 150 mediciones. Los resultados disponibles confirman el funcionamiento de los tres nodos y muestran variaciones de latencia según la consulta y el punto de acceso. La comparación con nodo único y la prueba controlada de tolerancia a fallos se mantienen como fases pendientes, por lo que las cifras expuestas se consideran resultados iniciales y no una conclusión definitiva sobre el rendimiento relativo del clúster.
+Este informe presenta el diseño y la implementación experimental de un clúster de base de datos distribuida con CockroachDB aplicado al PFC FUVV -- Laboratorios Informáticos. La solución organiza la información de usuarios, laboratorios, equipos, asignaciones, asistencias y reportes de fallos en un esquema relacional de diez tablas. El entorno fue desplegado mediante Docker Compose sobre tres nodos, con volúmenes persistentes, localidades lógicas y replicación de los datos. Como estrategia de distribución se aplicó particionamiento horizontal por lista sobre el estado de los reportes de fallo, con preferencias de leaseholder diferenciadas para cada partición. Se generó un conjunto de 15\,330 registros sintéticos y se ejecutaron cinco consultas representativas, con diez repeticiones en cada uno de los tres puntos de acceso, para un total de 150 mediciones. Los resultados disponibles confirman el funcionamiento de los tres nodos, la continuidad de una consulta durante la caída controlada de un nodo y variaciones de latencia según la consulta y el punto de acceso. La comparación con una instancia de nodo único se mantiene como fase pendiente, por lo que las cifras expuestas no constituyen todavía una conclusión definitiva sobre el rendimiento relativo del clúster.
 \end{abstract}
 
 \noindent\textbf{Palabras clave:} base de datos distribuida, CockroachDB, fragmentación horizontal, replicación, consenso Raft, laboratorios informáticos.
@@ -162,14 +149,7 @@ La práctica se organiza como un experimento reproducible. Primero se diseña el
 
 \textbf{Objetivo general.} Implementar, configurar y verificar un clúster funcional de base de datos distribuida de tres nodos aplicado al PFC FUVV,demostrando la distribución y replicación de los datos, su comportamiento ante fallos y el rendimiento de consultas representativas.
 
-\textbf{Objetivos específicos.}
-\begin{enumerate}
-  \item Configurar tres nodos CockroachDB en contenedores Docker con red y almacenamiento persistente.
-  \item Implementar el esquema relacional de laboratorios informáticos y una estrategia explícita de fragmentación horizontal.
-  \item Verificar la carga, distribución y replicación de los datos mediante consultas SQL y evidencia del clúster.
-  \item Comprobar experimentalmente la continuidad del servicio ante la caída y posterior reintegración de un nodo.
-  \item Comparar cinco consultas del PFC en el clúster y en una instancia de nodo único, relacionando los tiempos con sus planes de ejecución.
-\end{enumerate}
+\textbf{Objetivos específicos.} \begin{enumerate} \item Configurar tres nodos CockroachDB en contenedores Docker con red y almacenamiento persistente. \item Implementar el esquema relacional de laboratorios informáticos y una estrategia explícita de fragmentación horizontal. \item Verificar la carga, distribución y replicación de los datos mediante consultas SQL y evidencia del clúster. \item Comprobar experimentalmente la continuidad del servicio ante la caída y posterior reintegración de un nodo. \item Comparar cinco consultas del PFC en el clúster y en una instancia de nodo único, relacionando los tiempos con sus planes de ejecución. \end{enumerate}
 
 \subsection{Organización del informe}
 
@@ -328,36 +308,13 @@ ALTER TABLE reporte_fallo
   ADD CONSTRAINT uq_reporte_fallo_id
   UNIQUE (id_reporte);
 
-ALTER TABLE reporte_fallo
-  ALTER PRIMARY KEY USING COLUMNS (estado, id_reporte);
+ALTER TABLE reporte_fallo ALTER PRIMARY KEY USING COLUMNS (estado, id_reporte);
 
-ALTER TABLE reporte_fallo
-  PARTITION BY LIST (estado) (
-    PARTITION reporte_pendiente
-      VALUES IN ('PENDIENTE'),
-    PARTITION reporte_en_proceso
-      VALUES IN ('EN_PROCESO'),
-    PARTITION reporte_resuelto
-      VALUES IN ('RESUELTO')
-  );
+ALTER TABLE reporte_fallo PARTITION BY LIST (estado) ( PARTITION reporte_pendiente VALUES IN ('PENDIENTE'), PARTITION reporte_en_proceso VALUES IN ('EN_PROCESO'), PARTITION reporte_resuelto VALUES IN ('RESUELTO') );
 
-ALTER PARTITION reporte_pendiente
-OF TABLE reporte_fallo
-CONFIGURE ZONE USING
-  num_replicas = 3,
-  constraints = '{"+zone=nodo1": 1,
-                  "+zone=nodo2": 1,
-                  "+zone=nodo3": 1}',
-  lease_preferences = '[[+zone=nodo1]]';
+ALTER PARTITION reporte_pendiente OF TABLE reporte_fallo CONFIGURE ZONE USING num_replicas = 3, constraints = '{"+zone=nodo1": 1, "+zone=nodo2": 1, "+zone=nodo3": 1}', lease_preferences = '[[+zone=nodo1]]';
 
-ALTER PARTITION reporte_en_proceso
-OF TABLE reporte_fallo
-CONFIGURE ZONE USING
-  num_replicas = 3,
-  constraints = '{"+zone=nodo1": 1,
-                  "+zone=nodo2": 1,
-                  "+zone=nodo3": 1}',
-  lease_preferences = '[[+zone=nodo2]]';
+ALTER PARTITION reporte_en_proceso OF TABLE reporte_fallo CONFIGURE ZONE USING num_replicas = 3, constraints = '{"+zone=nodo1": 1, "+zone=nodo2": 1, "+zone=nodo3": 1}', lease_preferences = '[[+zone=nodo2]]';
 
 ALTER PARTITION reporte_resuelto
 OF TABLE reporte_fallo
@@ -409,70 +366,13 @@ services:
       - crdb-network
     restart: unless-stopped
 
-  crdb-node2:
-    image: cockroachdb/cockroach:v25.2.3
-    container_name: crdb-node2
-    hostname: crdb-node2
-    command:
-      - start
-      - --insecure
-      - --advertise-addr=crdb-node2:26357
-      - --listen-addr=crdb-node2:26357
-      - --sql-addr=crdb-node2:26257
-      - --http-addr=crdb-node2:8080
-      - --join=crdb-node1:26357,crdb-node2:26357,crdb-node3:26357
-      - --locality=region=uteq,zone=nodo2
-      - --store=/cockroach/cockroach-data
-    ports:
-      - "26258:26257"
-      - "8081:8080"
-    volumes:
-      - crdb-node2-data:/cockroach/cockroach-data
-    networks:
-      - crdb-network
-    restart: unless-stopped
+crdb-node2: image: cockroachdb/cockroach:v25.2.3 container_name: crdb-node2 hostname: crdb-node2 command: - start - --insecure - --advertise-addr=crdb-node2:26357 - --listen-addr=crdb-node2:26357 - --sql-addr=crdb-node2:26257 - --http-addr=crdb-node2:8080 - --join=crdb-node1:26357,crdb-node2:26357,crdb-node3:26357 - --locality=region=uteq,zone=nodo2 - --store=/cockroach/cockroach-data ports: - "26258:26257" - "8081:8080" volumes: - crdb-node2-data:/cockroach/cockroach-data networks: - crdb-network restart: unless-stopped
 
-  crdb-node3:
-    image: cockroachdb/cockroach:v25.2.3
-    container_name: crdb-node3
-    hostname: crdb-node3
-    command:
-      - start
-      - --insecure
-      - --advertise-addr=crdb-node3:26357
-      - --listen-addr=crdb-node3:26357
-      - --sql-addr=crdb-node3:26257
-      - --http-addr=crdb-node3:8080
-      - --join=crdb-node1:26357,crdb-node2:26357,crdb-node3:26357
-      - --locality=region=uteq,zone=nodo3
-      - --store=/cockroach/cockroach-data
-    ports:
-      - "26259:26257"
-      - "8082:8080"
-    volumes:
-      - crdb-node3-data:/cockroach/cockroach-data
-    networks:
-      - crdb-network
-    restart: unless-stopped
+crdb-node3: image: cockroachdb/cockroach:v25.2.3 container_name: crdb-node3 hostname: crdb-node3 command: - start - --insecure - --advertise-addr=crdb-node3:26357 - --listen-addr=crdb-node3:26357 - --sql-addr=crdb-node3:26257 - --http-addr=crdb-node3:8080 - --join=crdb-node1:26357,crdb-node2:26357,crdb-node3:26357 - --locality=region=uteq,zone=nodo3 - --store=/cockroach/cockroach-data ports: - "26259:26257" - "8082:8080" volumes: - crdb-node3-data:/cockroach/cockroach-data networks: - crdb-network restart: unless-stopped
 
-  crdb-init:
-    image: cockroachdb/cockroach:v25.2.3
-    container_name: crdb-init
-    depends_on:
-      - crdb-node1
-      - crdb-node2
-      - crdb-node3
-    command:
-      - init
-      - --insecure
-      - --host=crdb-node1:26357
-    networks:
-      - crdb-network
-    restart: "no"
+crdb-init: image: cockroachdb/cockroach:v25.2.3 container_name: crdb-init depends_on: - crdb-node1 - crdb-node2 - crdb-node3 command: - init - --insecure - --host=crdb-node1:26357 networks: - crdb-network restart: "no"
 
-networks:
-  crdb-network:
-    driver: bridge
+networks: crdb-network: driver: bridge
 
 volumes:
   crdb-node1-data:
@@ -605,10 +505,99 @@ La Tabla~\ref{tab:promedios-cluster} resume los promedios calculados a partir de
   \end{tabular}
 \end{table}
 
-Los resultados muestran que el punto de acceso con menor tiempo depende de la consulta. El nodo 1 obtuvo el menor promedio en Q1; el nodo 2 en Q2 y Q4; y el nodo 3 en Q3 y Q5. Esta variación es compatible con la existencia de leaseholders preferidos y con las diferencias entre filtros, uniones y agregaciones. Sin embargo, los datos actuales no permiten atribuir causalidad de forma definitiva: para ello deberán conservarse los planes de \texttt{EXPLAIN ANALYZE}, controlar el estado de la caché y repetir el experimento bajo condiciones equivalentes.
+Los resultados muestran que el punto de acceso con menor tiempo depende de la consulta. El nodo 1 obtuvo el menor promedio en Q1; el nodo 2 en Q2 y Q4; y el nodo 3 en Q3 y Q5. Esta variación es compatible con la existencia de leaseholders preferidos y con las diferencias entre filtros, uniones y agregaciones. Los planes de \texttt{EXPLAIN ANALYZE} presentados a continuación permiten identificar los operadores utilizados, aunque una atribución causal definitiva requiere además controlar el estado de la caché y repetir el experimento bajo condiciones equivalentes.
 
-\paragraph{Alcance de estos resultados.}
-Las cifras anteriores comparan conexiones a tres nodos pertenecientes al mismo clúster; no constituyen todavía la comparación requerida entre un clúster distribuido y una instancia independiente de nodo único. Por tanto, no se calcula aún el factor de mejora exigido por la rúbrica. También permanecen pendientes la evidencia de \texttt{SHOW RANGES}, la prueba de caída y reintegración de un nodo, el tiempo de recuperación y el video continuo de tolerancia a fallos. Estas limitaciones se declaran expresamente para no presentar como concluida una fase experimental que todavía requiere nuevas mediciones.
+\subsection{Análisis de los planes de ejecución}
+
+Las Figuras~\ref{fig:explain-q1}--\ref{fig:explain-q5} documentan los planes reales de las cinco consultas ejecutadas desde el nodo 1. En todos los casos CockroachDB informó ejecución vectorizada y distribución local; sin embargo, los planes difieren en la cantidad de filas decodificadas y en los operadores requeridos. Q1 y Q2 emplearon una unión con el índice primario para recuperar las filas filtradas por estado. En Q1 el acceso de clave-valor se atendió en el nodo 1, mientras que Q2 muestra acceso al nodo 2, comportamiento compatible con las preferencias de leaseholder configuradas para esas particiones.
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=0.92\textwidth]{Distribuidas/GA-SUM-03-PE-U3/imagenes/explain_analyze_q1_reportes_pendientes.jpeg}
+  \caption{Plan de ejecución de Q1: reportes pendientes.}
+  \label{fig:explain-q1}
+\end{figure}
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=0.92\textwidth]{Distribuidas/GA-SUM-03-PE-U3/imagenes/explain_analyze_q2_reportes_en_proceso.jpeg}
+  \caption{Plan de ejecución de Q2: reportes en proceso.}
+  \label{fig:explain-q2}
+\end{figure}
+
+Q3 incorporó una unión hash y un operador \textit{top-k} para combinar y ordenar los reportes resueltos con la información relacionada; su plan decodificó 1\,638 filas. Q4 procesó 2\,920 filas mediante una unión por búsqueda, una agrupación hash y un ordenamiento para calcular los reportes agrupados por laboratorio. Estas operaciones explican que ambas consultas realicen más trabajo que los filtros directos Q1 y Q2.
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=0.92\textwidth]{Distribuidas/GA-SUM-03-PE-U3/imagenes/explain_analyze_q3_reportes_resueltos_con_uniones.jpeg}
+  \caption{Plan de ejecución de Q3: reportes resueltos con uniones.}
+  \label{fig:explain-q3}
+\end{figure}
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=0.92\textwidth]{Distribuidas/GA-SUM-03-PE-U3/imagenes/explain_analyze_q4_reportes_agrupados_por_laboratorio.jpeg}
+  \caption{Plan de ejecución de Q4: reportes agrupados por laboratorio.}
+  \label{fig:explain-q4}
+\end{figure}
+
+Q5 fue el plan con mayor volumen decodificado, con 3\,320 filas. La consulta aplicó agrupación hash, filtrado y selección \textit{top-k} para identificar los equipos con más fallos. La combinación de agregación y ordenamiento resulta coherente con que Q5 presentara los promedios más altos del conjunto en los tres puntos de acceso.
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=0.92\textwidth]{Distribuidas/GA-SUM-03-PE-U3/imagenes/explain_analyze_q5_equipos_con_mas_fallos.jpeg}
+  \caption{Plan de ejecución de Q5: equipos con mayor cantidad de fallos.}
+  \label{fig:explain-q5}
+\end{figure}
+
+\subsection{Prueba de tolerancia a fallos y reintegración}
+
+La Figura~\ref{fig:secuencia-tolerancia-fallos} representa la secuencia completa del experimento. El flujo comienza con la verificación de los tres nodos y la comunicación normal del líder con sus seguidores; después muestra la detención del nodo 2, la continuidad de las lecturas, la confirmación de una escritura mediante el quórum formado por los nodos 1 y 3 y, finalmente, la reconexión del nodo detenido, la actualización de las entradas faltantes del log y la recuperación del estado activo de los tres nodos.
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[height=0.88\textheight,keepaspectratio]{Distribuidas/GA-SUM-03-PE-U3/diagrama/Diagrama.png}
+  \caption{Diagrama de secuencia de la prueba de tolerancia a fallos y reintegración del nodo 2.}
+  \label{fig:secuencia-tolerancia-fallos}
+\end{figure}
+
+Antes de provocar la falla se verificó el estado del clúster mediante \texttt{cockroach node status}. La Figura~\ref{fig:estado-tres-nodos} muestra que los tres nodos estaban disponibles y activos, con las localidades lógicas \texttt{nodo1}, \texttt{nodo2} y \texttt{nodo3}; esta comprobación estableció la condición inicial necesaria para interpretar la prueba.
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=\textwidth]{Distribuidas/GA-SUM-03-PE-U3/imagenes/verificacion_del_estado_de_los_tres_nodos_del_cluster.jpeg}
+  \caption{Verificación del estado inicial de los tres nodos del clúster.}
+  \label{fig:estado-tres-nodos}
+\end{figure}
+
+La distribución previa a la falla se examinó con \texttt{SHOW RANGES FROM TABLE reporte\_fallo}. En la Figura~\ref{fig:rangos-iniciales} se observan 14 rangos con réplicas asignadas a los tres nodos, lo cual confirma que la tabla contaba con copias distribuidas antes de detener uno de los integrantes del clúster.
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=\textwidth]{Distribuidas/GA-SUM-03-PE-U3/imagenes/distribucion_inicial_de_rangos_de_la_tabla_reporte_fallo.jpeg}
+  \caption{Distribución inicial de los rangos de la tabla \texttt{reporte\_fallo}.}
+  \label{fig:rangos-iniciales}
+\end{figure}
+
+La prueba de disponibilidad consistió en consultar la cantidad de registros de \texttt{reporte\_fallo}, detener el contenedor \texttt{crdb-node2} y repetir la misma operación desde un nodo superviviente. Como muestra la Figura~\ref{fig:consulta-caida-nodo2}, la consulta devolvió 2,500 registros tanto antes como después de la caída. El clúster mantuvo el servicio porque las dos réplicas restantes conservaron la mayoría requerida por el grupo de consenso.
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=\textwidth]{Distribuidas/GA-SUM-03-PE-U3/imagenes/consulta_exitosa_durante_la_caida_del_nodo_2.jpeg}
+  \caption{Consulta exitosa durante la caída controlada del nodo 2.}
+  \label{fig:consulta-caida-nodo2}
+\end{figure}
+
+Finalmente, se inició nuevamente el contenedor \texttt{crdb-node2} y se midió la ejecución de la verificación de estado. La Figura~\ref{fig:reintegracion-nodo2} registra el reinicio y un tiempo aproximado de 1.09 segundos para completar el comando de comprobación. Esta medición representa el tiempo observado por el procedimiento de verificación, por lo que no debe interpretarse por sí sola como una medición interna exacta de la recuperación de todas las réplicas.
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=\textwidth]{Distribuidas/GA-SUM-03-PE-U3/imagenes/reinicio_y_tiempo_de_reintegracion_del_nodo_2.jpeg}
+  \caption{Reinicio y tiempo observado de reintegración del nodo 2.}
+  \label{fig:reintegracion-nodo2}
+\end{figure}
+
+\paragraph{Alcance de estos resultados.} Las cifras de rendimiento anteriores comparan conexiones a tres nodos pertenecientes al mismo clúster; no constituyen todavía la comparación requerida entre un clúster distribuido y una instancia independiente de nodo único. Por tanto, aún no se calcula el factor de mejora exigido por la rúbrica. La prueba controlada sí demuestra continuidad de lectura frente a la caída de un nodo y documenta su reinicio, pero el video continuo y las mediciones repetidas de recuperación deberán conservarse como evidencias complementarias del experimento.
 
 \printbibliography[heading=bibintoc,title={Bibliografía}]
 
